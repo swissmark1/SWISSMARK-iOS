@@ -27,13 +27,21 @@ jobs:
           cd SWISSMARK_GITHUB_READY
           flutter pub get
 
-      - name: Build unsigned IPA
+      - name: Build iOS app without signing
         run: |
           cd SWISSMARK_GITHUB_READY
-          flutter build ipa --release --no-codesign
+          flutter build ios --release --no-codesign
+
+      - name: Create unsigned IPA
+        run: |
+          cd SWISSMARK_GITHUB_READY
+          rm -rf Payload
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/SWISSMARK.app
+          zip -r SWISSMARK.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-IPA
-          path: SWISSMARK_GITHUB_READY/build/ios/ipa/*.ipa
+          path: SWISSMARK_GITHUB_READY/SWISSMARK.ipa
