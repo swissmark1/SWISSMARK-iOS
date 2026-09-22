@@ -1,0 +1,39 @@
+name: Build SWISSMARK iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract SWISSMARK project
+        run: |
+          unzip -o SWISSMARK_GITHUB_READY.zip
+          cd SWISSMARK_GITHUB_READY
+          flutter create --platforms=ios .
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter packages
+        run: |
+          cd SWISSMARK_GITHUB_READY
+          flutter pub get
+
+      - name: Build unsigned IPA
+        run: |
+          cd SWISSMARK_GITHUB_READY
+          flutter build ipa --release --no-codesign
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-IPA
+          path: SWISSMARK_GITHUB_READY/build/ios/ipa/*.ipa
