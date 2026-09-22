@@ -11,18 +11,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
       - name: Extract SWISSMARK project
         run: |
           unzip -o SWISSMARK_GITHUB_READY.zip
           cd SWISSMARK_GITHUB_READY
           flutter create --platforms=ios .
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Flutter packages
+      - name: Get Flutter packages
         run: |
           cd SWISSMARK_GITHUB_READY
           flutter pub get
