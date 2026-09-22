@@ -69,27 +69,16 @@ jobs:
 
           echo ""
           echo "======================================"
-          echo "XCODEBUILD RESULT"
-          echo "Exit code: $BUILD_STATUS"
-          echo "======================================"
-
-          echo ""
-          echo "======================================"
-          echo "IMPORTANT ERRORS"
+          echo "SWISSMARK BUILD ERROR"
           echo "======================================"
 
           grep -nEi \
-            "error:|fatal error:|command.*failed|phasescriptexecution|no such file|not found|undefined" \
-            xcodebuild.log | tail -100 || true
+            "error:|fatal error:|PhaseScriptExecution|Command.*failed|No such file|not found|failed" \
+            xcodebuild.log | tail -80 || true
 
           echo ""
           echo "======================================"
-          echo "LAST 200 LOG LINES"
-          echo "======================================"
-
-          tail -200 xcodebuild.log
-
-          echo ""
+          echo "END ERROR"
           echo "======================================"
 
           exit $BUILD_STATUS
