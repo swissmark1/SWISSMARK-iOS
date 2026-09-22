@@ -34,15 +34,22 @@ jobs:
       - name: Verify iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
+
           test -f ios/Runner.xcodeproj/project.pbxproj
           test -f ios/Runner.xcworkspace/contents.xcworkspacedata
-          echo "iOS project is ready"
+
+          echo "======================================"
+          echo "iOS project verification successful"
+          echo "======================================"
 
       - name: Build iOS without signing
         run: |
           cd SWISSMARK_GITHUB_READY
 
           rm -rf build/ios/xcodebuild
+          rm -f xcodebuild.log
+
+          set +e
 
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
@@ -56,9 +63,39 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            build
+            build > xcodebuild.log 2>&1
+
+          BUILD_STATUS=$?
+
+          echo ""
+          echo "======================================"
+          echo "XCODEBUILD RESULT"
+          echo "Exit code: $BUILD_STATUS"
+          echo "======================================"
+
+          echo ""
+          echo "======================================"
+          echo "IMPORTANT ERRORS"
+          echo "======================================"
+
+          grep -nEi \
+            "error:|fatal error:|command.*failed|phasescriptexecution|no such file|not found|undefined" \
+            xcodebuild.log | tail -100 || true
+
+          echo ""
+          echo "======================================"
+          echo "LAST 200 LOG LINES"
+          echo "======================================"
+
+          tail -200 xcodebuild.log
+
+          echo ""
+          echo "======================================"
+
+          exit $BUILD_STATUS
 
       - name: Create unsigned IPA
+        if: success()
         run: |
           cd SWISSMARK_GITHUB_READY
 
@@ -73,6 +110,7 @@ jobs:
           zip -r ../SWISSMARK.ipa SWISSMARK.app
 
       - name: Upload IPA
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-IPA
