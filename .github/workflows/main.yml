@@ -19,7 +19,11 @@ jobs:
       - name: Extract SWISSMARK project
         run: |
           unzip -o SWISSMARK_GITHUB_READY.zip
+
+      - name: Prepare Flutter iOS project
+        run: |
           cd SWISSMARK_GITHUB_READY
+          rm -rf ios
           flutter create --platforms=ios .
 
       - name: Get Flutter packages
@@ -30,13 +34,11 @@ jobs:
       - name: Install CocoaPods
         run: |
           cd SWISSMARK_GITHUB_READY/ios
-          pod install
+          pod install --repo-update
 
-      - name: Build iOS app without signing
+      - name: Build iOS without signing
         run: |
           cd SWISSMARK_GITHUB_READY
-
-          rm -rf build/ios/xcodebuild
 
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
