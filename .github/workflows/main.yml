@@ -9,16 +9,16 @@ jobs:
 
     steps:
 
-      # =========================================================
+      # =====================================================
       # 1. Checkout
-      # =========================================================
+      # =====================================================
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # =========================================================
-      # 2. Setup Flutter
-      # =========================================================
+      # =====================================================
+      # 2. Flutter
+      # =====================================================
       - name: Setup Flutter 3.47.1
         uses: subosito/flutter-action@v2
         with:
@@ -27,67 +27,45 @@ jobs:
           cache: true
 
 
-      # =========================================================
-      # 3. Extract SWISSMARK project
-      # =========================================================
+      # =====================================================
+      # 3. Extract project
+      # =====================================================
       - name: Extract SWISSMARK project
         shell: bash
         run: |
           set -euo pipefail
 
           echo "========================================"
-          echo "EXTRACT SWISSMARK PROJECT"
+          echo "EXTRACTING SWISSMARK PROJECT"
           echo "========================================"
 
           test -f "SWISSMARK_GITHUB_READY_FIXED.zip"
 
+          rm -rf SWISSMARK_GITHUB_READY
+
           unzip -q -o "SWISSMARK_GITHUB_READY_FIXED.zip"
 
           echo ""
-          echo "Searching for pubspec.yaml..."
+          echo "Checking extracted project..."
 
-          PUBSPEC=$(find . \
-            -type f \
-            -name "pubspec.yaml" \
-            -not -path "./.git/*" \
-            -print \
-            | head -n 1)
-
-          if [ -z "$PUBSPEC" ]; then
-            echo ""
-            echo "ERROR: pubspec.yaml was not found."
-            echo ""
-            echo "Extracted files:"
-            find . -maxdepth 3 -type f | head -n 200
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$PUBSPEC")
+          test -d "SWISSMARK_GITHUB_READY"
+          test -f "SWISSMARK_GITHUB_READY/pubspec.yaml"
+          test -f "SWISSMARK_GITHUB_READY/lib/main.dart"
 
           echo ""
-          echo "========================================"
-          echo "FLUTTER PROJECT FOUND"
-          echo "========================================"
-
-          echo "PUBSPEC:"
-          echo "$PUBSPEC"
+          echo "SWISSMARK PROJECT FOUND SUCCESSFULLY"
 
           echo ""
-          echo "PROJECT DIRECTORY:"
-          echo "$PROJECT_DIR"
-
-          echo "$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo ""
-          echo "Project files:"
-          ls -la "$PROJECT_DIR"
+          echo "Project contents:"
+          ls -la SWISSMARK_GITHUB_READY
 
 
-      # =========================================================
+      # =====================================================
       # 4. Verify Flutter project
-      # =========================================================
+      # =====================================================
       - name: Verify Flutter project
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
 
@@ -95,29 +73,28 @@ jobs:
           echo "VERIFY FLUTTER PROJECT"
           echo "========================================"
 
-          test -d "$PROJECT_DIR"
-          test -f "$PROJECT_DIR/pubspec.yaml"
-          test -f "$PROJECT_DIR/lib/main.dart"
+          test -f pubspec.yaml
+          test -f lib/main.dart
 
-          echo "Flutter project is valid."
+          echo "pubspec.yaml FOUND"
+          echo "main.dart FOUND"
 
           echo ""
           echo "Flutter version:"
           flutter --version
 
 
-      # =========================================================
+      # =====================================================
       # 5. Create fresh iOS project
-      # =========================================================
+      # =====================================================
       - name: Create iOS project
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
 
-          cd "$PROJECT_DIR"
-
           echo "========================================"
-          echo "CREATE FRESH IOS PROJECT"
+          echo "CREATE IOS PROJECT"
           echo "========================================"
 
           rm -rf ios
@@ -135,18 +112,17 @@ jobs:
           test -f ios/Runner.xcworkspace/contents.xcworkspacedata
 
           echo ""
-          echo "iOS project created successfully."
+          echo "IOS PROJECT CREATED SUCCESSFULLY"
 
 
-      # =========================================================
-      # 6. Get Flutter packages
-      # =========================================================
+      # =====================================================
+      # 6. Flutter dependencies
+      # =====================================================
       - name: Get Flutter packages
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
-
-          cd "$PROJECT_DIR"
 
           echo "========================================"
           echo "FLUTTER PUB GET"
@@ -159,57 +135,57 @@ jobs:
           test -f ios/Flutter/Generated.xcconfig
 
           echo ""
-          echo "Flutter packages resolved successfully."
+          echo "FLUTTER PACKAGES READY"
 
 
-      # =========================================================
+      # =====================================================
       # 7. Configure iOS permissions
-      # =========================================================
+      # =====================================================
       - name: Configure iOS permissions
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
-
-          cd "$PROJECT_DIR"
-
-          PLIST="ios/Runner/Info.plist"
 
           echo "========================================"
           echo "CONFIGURE IOS PERMISSIONS"
           echo "========================================"
 
+          PLIST="ios/Runner/Info.plist"
+
+          test -f "$PLIST"
+
           /usr/libexec/PlistBuddy \
-            -c "Add :NSLocationWhenInUseUsageDescription string SWISS MARK needs your location to save the customer location." \
+            -c "Add :NSLocationWhenInUseUsageDescription string SWISS MARK needs your location to save customer location." \
             "$PLIST" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string SWISS MARK needs your location to save the customer location." \
+            -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string SWISS MARK needs your location to save customer location." \
             "$PLIST" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :NSPhotoLibraryUsageDescription string SWISS MARK needs photo access to attach photos to maintenance orders." \
+            -c "Add :NSPhotoLibraryUsageDescription string SWISS MARK needs photo access for maintenance orders." \
             "$PLIST" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :NSCameraUsageDescription string SWISS MARK needs camera access to attach photos to maintenance orders." \
+            -c "Add :NSCameraUsageDescription string SWISS MARK needs camera access for maintenance orders." \
             "$PLIST" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :NSMicrophoneUsageDescription string SWISS MARK needs microphone access when recording order videos." \
+            -c "Add :NSMicrophoneUsageDescription string SWISS MARK needs microphone access for videos." \
             "$PLIST" 2>/dev/null || true
 
-          echo "iOS permissions configured."
+          echo "IOS PERMISSIONS READY"
 
 
-      # =========================================================
+      # =====================================================
       # 8. Generate iOS configuration
-      # =========================================================
+      # =====================================================
       - name: Generate iOS configuration without signing
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
-
-          cd "$PROJECT_DIR"
 
           echo "========================================"
           echo "GENERATE IOS CONFIGURATION"
@@ -221,18 +197,17 @@ jobs:
             --no-codesign
 
           echo ""
-          echo "iOS configuration generated successfully."
+          echo "IOS CONFIGURATION READY"
 
 
-      # =========================================================
+      # =====================================================
       # 9. Build Flutter bundle
-      # =========================================================
+      # =====================================================
       - name: Build Flutter bundle
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
-
-          cd "$PROJECT_DIR"
 
           echo "========================================"
           echo "BUILD FLUTTER BUNDLE"
@@ -243,22 +218,23 @@ jobs:
           flutter build bundle --release
 
           echo ""
-          echo "Flutter bundle created successfully."
+          echo "FLUTTER BUNDLE CREATED"
 
 
-      # =========================================================
-      # 10. Build iOS with Xcode WITHOUT SIGNING
-      # =========================================================
+      # =====================================================
+      # 10. Build iOS with Xcode without signing
+      # =====================================================
       - name: Build iOS with Xcode without signing
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
 
-          cd "$PROJECT_DIR"
+          echo "========================================"
+          echo "XCODE BUILD WITHOUT SIGNING"
+          echo "========================================"
 
-          echo "========================================"
-          echo "BUILD IOS WITH XCODE"
-          echo "========================================"
+          rm -rf build/xcode
 
           mkdir -p build/xcode
 
@@ -278,62 +254,57 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "XCODE BUILD FINISHED"
+          echo "XCODE BUILD SUCCESSFUL"
           echo "========================================"
 
 
-      # =========================================================
+      # =====================================================
       # 11. Verify Runner.app
-      # =========================================================
+      # =====================================================
       - name: Verify iOS app
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
 
-          cd "$PROJECT_DIR"
-
           echo "========================================"
-          echo "VERIFY RUNNER.APP"
+          echo "VERIFY RUNNER APP"
           echo "========================================"
 
           APP_PATH="build/xcode/Build/Products/Release-iphoneos/Runner.app"
 
           if [ ! -d "$APP_PATH" ]; then
             echo ""
-            echo "ERROR: Runner.app was not found."
+            echo "ERROR: Runner.app NOT FOUND"
             echo ""
-            echo "Searching build directory..."
+            echo "Searching..."
             find build/xcode \
               -type d \
               -name "Runner.app" \
-              -print \
-              2>/dev/null || true
+              -print || true
 
             exit 1
           fi
 
           echo ""
-          echo "Runner.app FOUND:"
+          echo "RUNNER.APP FOUND"
           echo "$APP_PATH"
 
-          echo "$APP_PATH" > /tmp/swissmark_app_path
 
-
-      # =========================================================
+      # =====================================================
       # 12. Create IPA
-      # =========================================================
+      # =====================================================
       - name: Create IPA
         shell: bash
+        working-directory: SWISSMARK_GITHUB_READY
         run: |
           set -euo pipefail
-
-          cd "$PROJECT_DIR"
 
           echo "========================================"
           echo "CREATE SWISSMARK IPA"
           echo "========================================"
 
-          APP_PATH=$(cat /tmp/swissmark_app_path)
+          APP_PATH="build/xcode/Build/Products/Release-iphoneos/Runner.app"
 
           test -d "$APP_PATH"
 
@@ -346,22 +317,16 @@ jobs:
             "$APP_PATH" \
             Payload/SWISSMARK.app
 
-          cd Payload
-
           /usr/bin/zip \
             -q \
             -r \
-            ../SWISSMARK.ipa \
-            SWISSMARK.app
-
-          cd ..
+            SWISSMARK.ipa \
+            Payload/SWISSMARK.app
 
           test -s SWISSMARK.ipa
 
           echo ""
-          echo "========================================"
-          echo "VERIFY IPA"
-          echo "========================================"
+          echo "Checking IPA..."
 
           unzip -tq SWISSMARK.ipa
 
@@ -373,12 +338,12 @@ jobs:
           ls -lh SWISSMARK.ipa
 
 
-      # =========================================================
+      # =====================================================
       # 13. Upload IPA
-      # =========================================================
+      # =====================================================
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-IPA
-          path: ${{ env.PROJECT_DIR }}/SWISSMARK.ipa
+          path: SWISSMARK_GITHUB_READY/SWISSMARK.ipa
           if-no-files-found: error
