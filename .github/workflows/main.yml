@@ -8,6 +8,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -19,15 +20,35 @@ jobs:
       - name: Extract SWISSMARK project
         run: |
           unzip -o SWISSMARK_GITHUB_READY_FIXED.zip
-          echo "Project extracted"
+          echo "=== Extracted files ==="
           ls -la
 
       - name: Prepare Flutter iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
-          flutter create --platforms=ios .
-          echo "Flutter iOS project ready"
+
+          echo "=== Flutter version ==="
+          flutter --version
+
+          echo "=== Removing old iOS folder ==="
+          rm -rf ios
+
+          echo "=== Creating fresh iOS project ==="
+          flutter create \
+            --platforms=ios \
+            --org com.swissmark \
+            .
+
+          echo "=== Checking iOS folder ==="
           ls -la ios
+
+          echo "=== Checking Podfile ==="
+          if [ ! -f "ios/Podfile" ]; then
+            echo "ERROR: Podfile was NOT created"
+            exit 1
+          fi
+
+          echo "Podfile exists successfully"
 
       - name: Get Flutter packages
         run: |
@@ -38,17 +59,21 @@ jobs:
         run: |
           cd SWISSMARK_GITHUB_READY/ios
 
-          if [ ! -f "Podfile" ]; then
-            echo "Podfile not found"
-            echo "Creating Flutter iOS project again..."
-            cd ..
-            flutter create --platforms=ios .
-            cd ios
-          fi
+          echo "=== Installing CocoaPods ==="
+          pod install --repo-update
 
-          pod install
+          echo "=== Pods installed ==="
+          ls -la
 
-      - name: Disable iOS signing
+      - name: Build iOS without signing
+        run: |
+          cd SWISSMARK_GITHUB_READY
+
+          flutter build ios \
+            --release \
+            --no-codesign
+
+      - name: Disable signing and build archive
         run: |
           cd SWISSMARK_GITHUB_READY
 
@@ -67,21 +92,28 @@ jobs:
         run: |
           cd SWISSMARK_GITHUB_READY
 
+          echo "=== Checking Runner.app ==="
+
           if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
             echo "ERROR: Runner.app was not created"
             exit 1
           fi
 
-          echo "Runner.app created successfully"
+          echo "Runner.app exists!"
+          ls -lh build/ios/iphoneos/Runner.app
 
       - name: Create unsigned IPA
         run: |
           cd SWISSMARK_GITHUB_READY
 
-          rm -rf Payload
-          mkdir Payload
+          echo "=== Creating IPA ==="
 
-          cp -R build/ios/iphoneos/Runner.app Payload/SWISSMARK.app
+          rm -rf Payload
+          mkdir -p Payload
+
+          cp -R \
+            build/ios/iphoneos/Runner.app \
+            Payload/SWISSMARK.app
 
           zip -r SWISSMARK.ipa Payload
 
