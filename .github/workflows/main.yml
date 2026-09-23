@@ -9,37 +9,37 @@ jobs:
 
     steps:
 
-      # 1. تحميل المشروع
+      # 1. Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # 2. تثبيت Flutter
+      # 2. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
 
 
-      # 3. فك ملف المشروع
+      # 3. Extract project
       - name: Extract SWISSMARK project
         run: |
           echo "=============================="
-          echo "EXTRACTING SWISSMARK PROJECT"
+          echo "EXTRACT SWISSMARK PROJECT"
           echo "=============================="
 
           unzip -o SWISSMARK_GITHUB_READY_FIXED.zip
 
           echo ""
-          echo "=== Repository files ==="
+          echo "=== Repository ==="
           ls -la
 
           echo ""
-          echo "=== Project folder ==="
+          echo "=== SWISSMARK PROJECT ==="
           ls -la SWISSMARK_GITHUB_READY
 
 
-      # 4. إنشاء iOS من جديد
+      # 4. Create fresh iOS project
       - name: Prepare Flutter iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
@@ -47,6 +47,7 @@ jobs:
           echo "=============================="
           echo "FLUTTER VERSION"
           echo "=============================="
+
           flutter --version
 
           echo ""
@@ -58,7 +59,7 @@ jobs:
 
           echo ""
           echo "=============================="
-          echo "CREATE FRESH IOS PROJECT"
+          echo "CREATE IOS PROJECT"
           echo "=============================="
 
           flutter create \
@@ -67,14 +68,12 @@ jobs:
             .
 
           echo ""
-          echo "=============================="
-          echo "IOS FILES"
-          echo "=============================="
+          echo "=== IOS DIRECTORY ==="
 
           ls -la ios
 
 
-      # 5. جلب مكتبات Flutter
+      # 5. Flutter packages
       - name: Get Flutter packages
         run: |
           cd SWISSMARK_GITHUB_READY
@@ -86,19 +85,22 @@ jobs:
           flutter pub get
 
           echo ""
-          echo "=============================="
-          echo "CHECK PODFILE"
-          echo "=============================="
+          echo "=== IOS DIRECTORY AFTER PUB GET ==="
+
+          ls -la ios
+
+          echo ""
+          echo "=== PODFILE CHECK ==="
 
           if [ -f "ios/Podfile" ]; then
             echo "Podfile FOUND"
           else
-            echo "Podfile NOT FOUND"
-            echo "This is allowed if the project has no CocoaPods plugins."
+            echo "No Podfile found."
+            echo "Continuing without CocoaPods."
           fi
 
 
-      # 6. تثبيت CocoaPods فقط إذا كان Podfile موجود
+      # 6. CocoaPods if needed
       - name: Prepare iOS dependencies
         run: |
           cd SWISSMARK_GITHUB_READY
@@ -109,15 +111,15 @@ jobs:
 
           if [ -f "ios/Podfile" ]; then
 
-            echo "Podfile exists."
-            echo "Installing CocoaPods..."
+            echo "Podfile found."
+            echo "Running pod install..."
 
             cd ios
 
             pod install --repo-update
 
             echo ""
-            echo "CocoaPods installation completed."
+            echo "Pods installed successfully."
 
           else
 
@@ -127,71 +129,99 @@ jobs:
           fi
 
 
-      # 7. بناء تطبيق iOS بدون توقيع
-      - name: Build iOS without signing
+      # 7. Generate Flutter iOS configuration
+      - name: Generate Flutter iOS configuration
         run: |
           cd SWISSMARK_GITHUB_READY
 
           echo "=============================="
-          echo "BUILD IOS"
+          echo "GENERATE FLUTTER IOS CONFIG"
           echo "=============================="
 
           flutter build ios \
-            --release \
-            --no-codesign
+            --config-only \
+            --release
+
+          echo ""
+          echo "Flutter iOS configuration generated."
 
 
-      # 8. التأكد من وجود Runner.app
-      - name: Verify iOS app
+      # 8. Build directly with Xcode without signing
+      - name: Build iOS with Xcode without signing
         run: |
           cd SWISSMARK_GITHUB_READY
 
           echo "=============================="
-          echo "VERIFY IOS APP"
+          echo "XCODE BUILD WITHOUT SIGNING"
           echo "=============================="
 
-          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+          mkdir -p build/ios
 
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
+
+          echo ""
+          echo "=============================="
+          echo "XCODE BUILD FINISHED"
+          echo "=============================="
+
+
+      # 9. Find Runner.app
+      - name: Locate iOS app
+        run: |
+          cd SWISSMARK_GITHUB_READY
+
+          echo "=============================="
+          echo "SEARCHING FOR RUNNER.APP"
+          echo "=============================="
+
+          find build/ios -name "Runner.app" -type d -print
+
+          APP_PATH=$(find build/ios -name "Runner.app" -type d | head -n 1)
+
+          if [ -z "$APP_PATH" ]; then
             echo ""
-            echo "================================"
-            echo "RUNNER.APP CREATED SUCCESSFULLY"
-            echo "================================"
-
-            ls -lh build/ios/iphoneos/Runner.app
-
-          else
-
-            echo ""
-            echo "================================"
-            echo "ERROR: RUNNER.APP NOT FOUND"
-            echo "================================"
-
-            echo ""
-            echo "=== Build directory ==="
-            find build -maxdepth 4 -type d 2>/dev/null || true
-
+            echo "ERROR: Runner.app was not found."
             exit 1
-
           fi
 
+          echo ""
+          echo "FOUND:"
+          echo "$APP_PATH"
 
-      # 9. إنشاء IPA بدون توقيع
+          echo "$APP_PATH" > /tmp/swissmark_app_path
+
+
+      # 10. Create IPA
       - name: Create unsigned IPA
         run: |
           cd SWISSMARK_GITHUB_READY
 
           echo "=============================="
-          echo "CREATE IPA"
+          echo "CREATE SWISSMARK IPA"
           echo "=============================="
+
+          APP_PATH=$(cat /tmp/swissmark_app_path)
+
+          echo "Using:"
+          echo "$APP_PATH"
 
           rm -rf Payload
           rm -f SWISSMARK.ipa
 
           mkdir -p Payload
 
-          cp -R \
-            build/ios/iphoneos/Runner.app \
-            Payload/SWISSMARK.app
+          cp -R "$APP_PATH" Payload/SWISSMARK.app
 
           echo ""
           echo "Creating IPA..."
@@ -199,14 +229,14 @@ jobs:
           zip -r -q SWISSMARK.ipa Payload
 
           echo ""
-          echo "================================"
+          echo "=============================="
           echo "SWISSMARK IPA CREATED"
-          echo "================================"
+          echo "=============================="
 
           ls -lh SWISSMARK.ipa
 
 
-      # 10. رفع IPA كـ Artifact
+      # 11. Upload IPA
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
