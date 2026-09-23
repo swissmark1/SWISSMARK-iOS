@@ -18,13 +18,15 @@ jobs:
 
       - name: Extract SWISSMARK project
         run: |
-          unzip -o SWISSMARK_GITHUB_READY.zip
+          unzip -o SWISSMARK_GITHUB_READY_FIXED.zip
+          echo "Project extracted successfully"
+          ls -la
 
       - name: Prepare Flutter iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
-          rm -rf ios
           flutter create --platforms=ios .
+          echo "Flutter iOS project prepared"
 
       - name: Get Flutter packages
         run: |
@@ -34,72 +36,30 @@ jobs:
       - name: Verify iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
-
-          test -f ios/Runner.xcodeproj/project.pbxproj
+          test -d ios
           test -f ios/Runner.xcworkspace/contents.xcworkspacedata
-
-          echo "======================================"
-          echo "iOS project verification successful"
-          echo "======================================"
+          echo "iOS project verified"
 
       - name: Build iOS without signing
         run: |
           cd SWISSMARK_GITHUB_READY
-
-          rm -rf build/ios/xcodebuild
-          rm -f xcodebuild.log
-
-          set +e
-
-          xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build/ios/xcodebuild \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            build > xcodebuild.log 2>&1
-
-          BUILD_STATUS=$?
-
-          echo ""
-          echo "======================================"
-          echo "SWISSMARK BUILD ERROR"
-          echo "======================================"
-
-          grep -nEi \
-            "error:|fatal error:|PhaseScriptExecution|Command.*failed|No such file|not found|failed" \
-            xcodebuild.log | tail -80 || true
-
-          echo ""
-          echo "======================================"
-          echo "END ERROR"
-          echo "======================================"
-
-          exit $BUILD_STATUS
+          flutter build ios --release --no-codesign
 
       - name: Create unsigned IPA
-        if: success()
         run: |
           cd SWISSMARK_GITHUB_READY
 
           rm -rf Payload
           mkdir Payload
 
-          cp -R \
-            build/ios/xcodebuild/Build/Products/Release-iphoneos/Runner.app \
-            Payload/SWISSMARK.app
+          cp -R build/ios/iphoneos/Runner.app Payload/SWISSMARK.app
 
-          cd Payload
-          zip -r ../SWISSMARK.ipa SWISSMARK.app
+          zip -r SWISSMARK.ipa Payload
+
+          echo "IPA created successfully"
+          ls -lh SWISSMARK.ipa
 
       - name: Upload IPA
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-IPA
