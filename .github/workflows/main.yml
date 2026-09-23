@@ -26,7 +26,8 @@ jobs:
         run: |
           cd SWISSMARK_GITHUB_READY
           flutter create --platforms=ios .
-          echo "iOS project prepared"
+          echo "Flutter iOS project ready"
+          ls -la ios
 
       - name: Get Flutter packages
         run: |
@@ -35,11 +36,17 @@ jobs:
 
       - name: Prepare iOS dependencies
         run: |
-          cd SWISSMARK_GITHUB_READY
-          flutter precache --ios
-          cd ios
+          cd SWISSMARK_GITHUB_READY/ios
+
+          if [ ! -f "Podfile" ]; then
+            echo "Podfile not found"
+            echo "Creating Flutter iOS project again..."
+            cd ..
+            flutter create --platforms=ios .
+            cd ios
+          fi
+
           pod install
-          echo "Pods installed successfully"
 
       - name: Disable iOS signing
         run: |
@@ -66,7 +73,6 @@ jobs:
           fi
 
           echo "Runner.app created successfully"
-          ls -lh build/ios/iphoneos/Runner.app
 
       - name: Create unsigned IPA
         run: |
@@ -79,7 +85,10 @@ jobs:
 
           zip -r SWISSMARK.ipa Payload
 
+          echo "=============================="
           echo "SWISSMARK IPA CREATED"
+          echo "=============================="
+
           ls -lh SWISSMARK.ipa
 
       - name: Upload IPA
