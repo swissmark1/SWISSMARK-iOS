@@ -9,10 +9,16 @@ jobs:
 
     steps:
 
+      # =========================================================
+      # 1. Checkout
+      # =========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
 
+      # =========================================================
+      # 2. Setup Flutter
+      # =========================================================
       - name: Setup Flutter 3.47.1
         uses: subosito/flutter-action@v2
         with:
@@ -21,25 +27,98 @@ jobs:
           cache: true
 
 
+      # =========================================================
+      # 3. Extract SWISSMARK project
+      # =========================================================
       - name: Extract SWISSMARK project
         shell: bash
         run: |
           set -euo pipefail
 
-          unzip -q -o SWISSMARK_GITHUB_READY_FIXED.zip
+          echo "========================================"
+          echo "EXTRACT SWISSMARK PROJECT"
+          echo "========================================"
 
-          test -f SWISSMARK_GITHUB_READY/pubspec.yaml
-          test -f SWISSMARK_GITHUB_READY/lib/main.dart
+          test -f "SWISSMARK_GITHUB_READY_FIXED.zip"
 
-          echo "SWISSMARK project found."
+          unzip -q -o "SWISSMARK_GITHUB_READY_FIXED.zip"
+
+          echo ""
+          echo "Searching for pubspec.yaml..."
+
+          PUBSPEC=$(find . \
+            -type f \
+            -name "pubspec.yaml" \
+            -not -path "./.git/*" \
+            -print \
+            | head -n 1)
+
+          if [ -z "$PUBSPEC" ]; then
+            echo ""
+            echo "ERROR: pubspec.yaml was not found."
+            echo ""
+            echo "Extracted files:"
+            find . -maxdepth 3 -type f | head -n 200
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PUBSPEC")
+
+          echo ""
+          echo "========================================"
+          echo "FLUTTER PROJECT FOUND"
+          echo "========================================"
+
+          echo "PUBSPEC:"
+          echo "$PUBSPEC"
+
+          echo ""
+          echo "PROJECT DIRECTORY:"
+          echo "$PROJECT_DIR"
+
+          echo "$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "Project files:"
+          ls -la "$PROJECT_DIR"
 
 
+      # =========================================================
+      # 4. Verify Flutter project
+      # =========================================================
+      - name: Verify Flutter project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo "VERIFY FLUTTER PROJECT"
+          echo "========================================"
+
+          test -d "$PROJECT_DIR"
+          test -f "$PROJECT_DIR/pubspec.yaml"
+          test -f "$PROJECT_DIR/lib/main.dart"
+
+          echo "Flutter project is valid."
+
+          echo ""
+          echo "Flutter version:"
+          flutter --version
+
+
+      # =========================================================
+      # 5. Create fresh iOS project
+      # =========================================================
       - name: Create iOS project
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "CREATE FRESH IOS PROJECT"
+          echo "========================================"
 
           rm -rf ios
 
@@ -51,35 +130,53 @@ jobs:
             --project-name swissmark \
             .
 
+          test -d ios
           test -f ios/Runner.xcodeproj/project.pbxproj
           test -f ios/Runner.xcworkspace/contents.xcworkspacedata
 
+          echo ""
           echo "iOS project created successfully."
 
 
+      # =========================================================
+      # 6. Get Flutter packages
+      # =========================================================
       - name: Get Flutter packages
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "FLUTTER PUB GET"
+          echo "========================================"
 
           flutter clean
           flutter pub get
 
+          test -f pubspec.yaml
           test -f ios/Flutter/Generated.xcconfig
 
+          echo ""
           echo "Flutter packages resolved successfully."
 
 
+      # =========================================================
+      # 7. Configure iOS permissions
+      # =========================================================
       - name: Configure iOS permissions
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
 
           PLIST="ios/Runner/Info.plist"
+
+          echo "========================================"
+          echo "CONFIGURE IOS PERMISSIONS"
+          echo "========================================"
 
           /usr/libexec/PlistBuddy \
             -c "Add :NSLocationWhenInUseUsageDescription string SWISS MARK needs your location to save the customer location." \
@@ -104,27 +201,64 @@ jobs:
           echo "iOS permissions configured."
 
 
+      # =========================================================
+      # 8. Generate iOS configuration
+      # =========================================================
       - name: Generate iOS configuration without signing
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "GENERATE IOS CONFIGURATION"
+          echo "========================================"
 
           flutter build ios \
             --release \
             --config-only \
             --no-codesign
 
+          echo ""
           echo "iOS configuration generated successfully."
 
 
+      # =========================================================
+      # 9. Build Flutter bundle
+      # =========================================================
+      - name: Build Flutter bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "BUILD FLUTTER BUNDLE"
+          echo "========================================"
+
+          test -f pubspec.yaml
+
+          flutter build bundle --release
+
+          echo ""
+          echo "Flutter bundle created successfully."
+
+
+      # =========================================================
+      # 10. Build iOS with Xcode WITHOUT SIGNING
+      # =========================================================
       - name: Build iOS with Xcode without signing
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "BUILD IOS WITH XCODE"
+          echo "========================================"
 
           mkdir -p build/xcode
 
@@ -142,113 +276,71 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             build
 
-          echo "Xcode build completed successfully."
+          echo ""
+          echo "========================================"
+          echo "XCODE BUILD FINISHED"
+          echo "========================================"
 
 
+      # =========================================================
+      # 11. Verify Runner.app
+      # =========================================================
+      - name: Verify iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "$PROJECT_DIR"
+
+          echo "========================================"
+          echo "VERIFY RUNNER.APP"
+          echo "========================================"
+
+          APP_PATH="build/xcode/Build/Products/Release-iphoneos/Runner.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo ""
+            echo "ERROR: Runner.app was not found."
+            echo ""
+            echo "Searching build directory..."
+            find build/xcode \
+              -type d \
+              -name "Runner.app" \
+              -print \
+              2>/dev/null || true
+
+            exit 1
+          fi
+
+          echo ""
+          echo "Runner.app FOUND:"
+          echo "$APP_PATH"
+
+          echo "$APP_PATH" > /tmp/swissmark_app_path
+
+
+      # =========================================================
+      # 12. Create IPA
+      # =========================================================
       - name: Create IPA
         shell: bash
         run: |
           set -euo pipefail
 
-          cd SWISSMARK_GITHUB_READY
+          cd "$PROJECT_DIR"
 
-          APP_PATH="build/xcode/Build/Products/Release-iphoneos/Runner.app"
+          echo "========================================"
+          echo "CREATE SWISSMARK IPA"
+          echo "========================================"
 
-          test -d "$APP_PATH"
-
-          rm -rf Payload
-          rm -f SWISSMARK.ipa
-
-          mkdir Payload
-
-          cp -R \
-            "$APP_PATH" \
-            Payload/SWISSMARK.app
-
-          /usr/bin/zip \
-            -q \
-            -r \
-            SWISSMARK.ipa \
-            Payload/SWISSMARK.app
-
-          test -s SWISSMARK.ipa
-
-          unzip -tq SWISSMARK.ipa
-
-          echo ""
-          echo "======================================"
-          echo "SWISSMARK IPA CREATED SUCCESSFULLY"
-          echo "======================================"
-
-          ls -lh SWISSMARK.ipa
-
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: SWISSMARK-IPA
-          path: SWISSMARK_GITHUB_READY/SWISSMARK.ipa
-          if-no-files-found: error
-      - name: Build Flutter bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "BUILD FLUTTER BUNDLE"
-          echo "======================================"
-
-          flutter build bundle --release
-
-          echo ""
-          echo "Flutter bundle created successfully."
-
-
-      - name: Build iOS with Xcode without signing
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "XCODE BUILD WITHOUT SIGNING"
-          echo "======================================"
-
-          xcodebuild \
-            -project ios/Runner.xcodeproj \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build/xcode \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY= \
-            DEVELOPMENT_TEAM= \
-            PROVISIONING_PROFILE_SPECIFIER= \
-            build
-
-          echo ""
-          echo "======================================"
-          echo "XCODE BUILD SUCCESSFUL"
-          echo "======================================"
-
-
-      - name: Package IPA
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "CREATE IPA"
-          echo "======================================"
-
-          APP_PATH="build/xcode/Build/Products/Release-iphoneos/Runner.app"
+          APP_PATH=$(cat /tmp/swissmark_app_path)
 
           test -d "$APP_PATH"
 
           rm -rf Payload
           rm -f SWISSMARK.ipa
 
-          mkdir Payload
+          mkdir -p Payload
 
           cp -R \
             "$APP_PATH" \
@@ -257,8 +349,8 @@ jobs:
           cd Payload
 
           /usr/bin/zip \
-            -r \
             -q \
+            -r \
             ../SWISSMARK.ipa \
             SWISSMARK.app
 
@@ -267,20 +359,26 @@ jobs:
           test -s SWISSMARK.ipa
 
           echo ""
-          echo "======================================"
+          echo "========================================"
           echo "VERIFY IPA"
-          echo "======================================"
+          echo "========================================"
 
           unzip -tq SWISSMARK.ipa
 
           echo ""
-          echo "IPA CREATED SUCCESSFULLY:"
+          echo "========================================"
+          echo "SWISSMARK IPA CREATED"
+          echo "========================================"
+
           ls -lh SWISSMARK.ipa
 
 
+      # =========================================================
+      # 13. Upload IPA
+      # =========================================================
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-IPA
-          path: SWISSMARK.ipa
+          path: ${{ env.PROJECT_DIR }}/SWISSMARK.ipa
           if-no-files-found: error
