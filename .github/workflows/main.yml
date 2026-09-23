@@ -8,8 +8,10 @@ jobs:
     runs-on: macos-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
+
 
       - name: Setup Flutter 3.47.1
         uses: subosito/flutter-action@v2
@@ -18,12 +20,15 @@ jobs:
           channel: stable
           cache: true
 
+
       - name: Extract SWISSMARK project
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== FINDING SWISSMARK ZIP ==="
+          echo "======================================"
+          echo "FINDING SWISSMARK V51 PROJECT"
+          echo "======================================"
 
           shopt -s nullglob
 
@@ -31,14 +36,17 @@ jobs:
 
           if [ "${#zips[@]}" -eq 0 ]; then
             echo "ERROR: No SWISSMARK_V51_IOS*.zip found."
-            echo "Files in repository:"
+            echo ""
+            echo "Repository files:"
             find . -maxdepth 3 -type f -print
             exit 1
           fi
 
-          echo "Using ZIP: ${zips[0]}"
+          echo "ZIP FOUND:"
+          echo "${zips[0]}"
 
           rm -rf swissmark_project
+
           mkdir -p swissmark_project
 
           unzip -q "${zips[0]}" -d swissmark_project
@@ -54,58 +62,105 @@ jobs:
 
           if [ -z "${PROJECT_DIR}" ]; then
             echo "ERROR: pubspec.yaml was not found."
+            echo ""
+            echo "Extracted files:"
             find swissmark_project -maxdepth 5 -print
             exit 1
           fi
 
           echo "PROJECT_DIR=${PROJECT_DIR}" >> "$GITHUB_ENV"
 
-          echo "Flutter project:"
+          echo ""
+          echo "FLUTTER PROJECT:"
           echo "${PROJECT_DIR}"
 
           test -f "${PROJECT_DIR}/pubspec.yaml"
+
           test -f "${PROJECT_DIR}/lib/main.dart"
 
-          echo "Project files verified."
+          echo ""
+          echo "PROJECT FILES VERIFIED."
+
 
       - name: Verify Flutter project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
+          echo "======================================"
+          echo "VERIFY FLUTTER PROJECT"
+          echo "======================================"
+
           flutter --version
+
+          echo ""
+          echo "Running flutter pub get..."
 
           flutter pub get
 
-          flutter analyze --no-fatal-infos
+          echo ""
+          echo "Running flutter analyze..."
+
+          flutter analyze \
+            --no-fatal-infos \
+            --no-fatal-warnings
+
+          echo ""
+          echo "FLUTTER PROJECT VERIFIED."
+
 
       - name: Create iOS project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
-          flutter create --platforms=ios .
+          echo "======================================"
+          echo "CREATE iOS PROJECT"
+          echo "======================================"
+
+          flutter create \
+            --platforms=ios \
+            .
+
+          echo ""
+          echo "iOS PROJECT CREATED."
+
 
       - name: Get Flutter packages
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
+          echo "======================================"
+          echo "GET FLUTTER PACKAGES"
+          echo "======================================"
+
           flutter pub get
+
+          echo ""
+          echo "PACKAGES READY."
+
 
       - name: Configure iOS permissions
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
+          echo "======================================"
+          echo "CONFIGURE iOS PERMISSIONS"
+          echo "======================================"
+
           /usr/bin/python3 - <<'PY'
           from pathlib import Path
 
-          p = Path("ios/Runner/Info.plist")
+          plist = Path("ios/Runner/Info.plist")
 
-          s = p.read_text()
+          if not plist.exists():
+              raise SystemExit("ERROR: ios/Runner/Info.plist not found")
 
-          additions = [
+          content = plist.read_text()
+
+          permissions = [
               (
                   "<key>NSLocationWhenInUseUsageDescription</key>",
                   "<key>NSLocationWhenInUseUsageDescription</key>"
@@ -121,46 +176,79 @@ jobs:
                   "<key>NSCameraUsageDescription</key>"
                   "<string>SWISSMARK يحتاج الكاميرا لإضافة صور للأوردر.</string>"
               ),
+              (
+                  "<key>NSMicrophoneUsageDescription</key>",
+                  "<key>NSMicrophoneUsageDescription</key>"
+                  "<string>SWISSMARK يحتاج المايك لبعض وظائف الوسائط.</string>"
+              ),
           ]
 
-          for key, block in additions:
-              if key not in s:
-                  s = s.replace(
+          for key, block in permissions:
+              if key not in content:
+                  content = content.replace(
                       "</dict>",
                       "    " + block + "\n</dict>",
                       1
                   )
 
-          p.write_text(s)
+          plist.write_text(content)
 
-          print("iOS permissions configured.")
+          print("iOS permissions configured successfully.")
+          PY
+
 
       - name: Generate iOS configuration without signing
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
+          echo "======================================"
+          echo "BUILD iOS WITHOUT SIGNING"
+          echo "======================================"
+
           flutter build ios \
             --release \
             --no-codesign
+
+          echo ""
+          echo "iOS BUILD COMPLETED."
+
 
       - name: Verify iOS app
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
-          test -d build/ios/iphoneos/Runner.app
+          echo "======================================"
+          echo "VERIFY iOS APP"
+          echo "======================================"
 
-          echo "Runner.app exists."
+          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "ERROR: Runner.app was not created."
+            exit 1
+          fi
+
+          echo "Runner.app FOUND."
+
+          echo ""
+          echo "Bundle identifier:"
 
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             build/ios/iphoneos/Runner.app/Info.plist
 
+          echo ""
+          echo "iOS APP VERIFIED."
+
+
       - name: Create IPA
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
+
+          echo "======================================"
+          echo "CREATE IPA"
+          echo "======================================"
 
           rm -rf ipa_out
 
@@ -172,11 +260,39 @@ jobs:
 
           cd ipa_out
 
-          zip -qr ../SWISSMARK.ipa Payload
+          zip -qr \
+            ../SWISSMARK.ipa \
+            Payload
 
-          test -f ../SWISSMARK.ipa
+          cd ..
 
-          echo "IPA CREATED SUCCESSFULLY."
+          if [ ! -f "SWISSMARK.ipa" ]; then
+            echo "ERROR: SWISSMARK.ipa was not created."
+            exit 1
+          fi
+
+          echo ""
+          echo "======================================"
+          echo "IPA CREATED SUCCESSFULLY"
+          echo "======================================"
+
+          ls -lh SWISSMARK.ipa
+
+
+      - name: Verify IPA archive
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "VERIFY IPA"
+          echo "======================================"
+
+          unzip -t SWISSMARK.ipa
+
+          echo ""
+          echo "IPA ARCHIVE VERIFIED."
+
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
