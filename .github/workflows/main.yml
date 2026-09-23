@@ -11,30 +11,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find and extract SWISSMARK iOS project
+      - name: Find and extract latest SWISSMARK iOS project
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          if [ -f "SWISSMARK_iOS_V6.zip" ]; then
-            mkdir -p ios_source
-            unzip -q "SWISSMARK_iOS_V6.zip" -d ios_source
-          elif [ -f "SWISSMARK_iOS_V5.zip" ]; then
-            mkdir -p ios_source
-            unzip -q "SWISSMARK_iOS_V5.zip" -d ios_source
-          fi
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name 'SWISSMARK_iOS_*.zip' | sort -V | tail -n 1)
 
-          PROJECT_FILE=$(find . -name project.yml -type f | head -n 1)
-
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERROR: project.yml not found"
+          if [ -z "${ZIP_FILE}" ]; then
+            echo "ERROR: No SWISSMARK_iOS_*.zip found in repository root."
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+          echo "Using ${ZIP_FILE}"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project at: $PROJECT_DIR"
+          rm -rf ios_source
+          mkdir -p ios_source
+
+          unzip -q "${ZIP_FILE}" -d ios_source
+
+          PROJECT_FILE=$(find ios_source -name project.yml -type f | head -n 1)
+
+          if [ -z "${PROJECT_FILE}" ]; then
+            echo "ERROR: project.yml not found inside ${ZIP_FILE}"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "${PROJECT_FILE}")
+
+          echo "PROJECT_DIR=${PROJECT_DIR}" >> "$GITHUB_ENV"
+
+          echo "Found project at ${PROJECT_DIR}"
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -42,13 +49,12 @@ jobs:
       - name: Generate Xcode project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          set -e
           xcodegen generate --spec project.yml
 
       - name: Build SWISSMARK iOS
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          set -e
+          set -euo pipefail
 
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
@@ -63,7 +69,9 @@ jobs:
       - name: Package IPA
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          set -e
+          set -euo pipefail
+
+          rm -rf Payload SWISSMARK.ipa
 
           mkdir -p Payload
 
