@@ -1,36 +1,118 @@
-# This is a basic workflow to help you get started with Actions
+name: Build SWISSMARK iOS
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: macos-15
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Prepare project
+        shell: bash
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          set -e
+
+          rm -rf .build_src
+          mkdir -p .build_src
+
+          ZIP="$(find . -maxdepth 2 -type f -name '*.zip' | head -n 1)"
+
+          if [ -n "$ZIP" ]; then
+            echo "Using ZIP: $ZIP"
+            unzip -q "$ZIP" -d .build_src
+          fi
+
+          PROJECT="$(find .build_src -name project.yml -print -quit)"
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: project.yml not found"
+            echo "Files found:"
+            find . -maxdepth 5 -type f | head -200
+            exit 1
+          fi
+
+          ROOT="$(dirname "$PROJECT")"
+
+          echo "Project root:"
+          echo "$ROOT"
+
+          cp -R "$ROOT"/. .
+
+          test -f project.yml
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iOS app
+        shell: bash
+        run: |
+          set -e
+
+          SCHEME="$(xcodebuild -list -json | \
+            python3 -c '
+          import json
+          import sys
+          data = json.load(sys.stdin)
+          print(data["project"]["schemes"][0])
+          ')"
+
+          echo "Scheme: $SCHEME"
+
+          xcodebuild \
+            -project SWISSMARKiOS.xcodeproj \
+            -scheme "$SCHEME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package app
+        shell: bash
+        run: |
+          set -e
+
+          APP="$(find \
+            build/Build/Products/Release-iphoneos \
+            -maxdepth 1 \
+            -name '*.app' \
+            -print \
+            -quit)"
+
+          if [ -z "$APP" ]; then
+            echo "ERROR: iOS .app was not created"
+            exit 1
+          fi
+
+          echo "App found:"
+          echo "$APP"
+
+          rm -rf Payload
+          rm -f SWISSMARK-iOS-unsigned.zip
+
+          mkdir -p Payload
+
+          cp -R "$APP" Payload/
+
+          zip -qry \
+            SWISSMARK-iOS-unsigned.zip \
+            Payload
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-iOS-unsigned
+          path: SWISSMARK-iOS-unsigned.zip
+          if-no-files-found: error
