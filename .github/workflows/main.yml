@@ -75,7 +75,6 @@ jobs:
           echo "${PROJECT_DIR}"
 
           test -f "${PROJECT_DIR}/pubspec.yaml"
-
           test -f "${PROJECT_DIR}/lib/main.dart"
 
           echo ""
@@ -126,6 +125,131 @@ jobs:
           echo "iOS PROJECT CREATED."
 
 
+      - name: Install Xcode project helper
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "INSTALL XCODE PROJECT HELPER"
+          echo "======================================"
+
+          gem install xcodeproj --no-document
+
+          echo "xcodeproj installed successfully."
+
+
+      - name: Install GoogleService-Info.plist
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "INSTALL FIREBASE IOS CONFIGURATION"
+          echo "======================================"
+
+          if [ ! -f "${GITHUB_WORKSPACE}/GoogleService-Info.plist" ]; then
+            echo "ERROR: GoogleService-Info.plist was not found."
+            echo ""
+            echo "Upload GoogleService-Info.plist to the root of the GitHub repository."
+            exit 1
+          fi
+
+          cp \
+            "${GITHUB_WORKSPACE}/GoogleService-Info.plist" \
+            "ios/Runner/GoogleService-Info.plist"
+
+          test -f "ios/Runner/GoogleService-Info.plist"
+
+          echo "GoogleService-Info.plist copied successfully."
+
+
+      - name: Add Firebase plist to Xcode resources
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "ADD FIREBASE PLIST TO XCODE TARGET"
+          echo "======================================"
+
+          export PROJECT_DIR_ABS="$(pwd)"
+
+          ruby <<'RUBY'
+          require "xcodeproj"
+
+          project_dir = ENV["PROJECT_DIR_ABS"]
+
+          project_path = File.join(
+            project_dir,
+            "ios",
+            "Runner.xcodeproj"
+          )
+
+          plist_path = File.join(
+            project_dir,
+            "ios",
+            "Runner",
+            "GoogleService-Info.plist"
+          )
+
+          unless File.exist?(project_path)
+            abort("ERROR: Runner.xcodeproj was not found.")
+          end
+
+          unless File.exist?(plist_path)
+            abort("ERROR: GoogleService-Info.plist was not found.")
+          end
+
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find do |t|
+            t.name == "Runner"
+          end
+
+          unless target
+            abort("ERROR: Runner target was not found.")
+          end
+
+          group = project.main_group
+            .groups
+            .find { |g| g.path.to_s == "Runner" }
+
+          unless group
+            group = project.main_group.new_group(
+              "Runner",
+              "Runner"
+            )
+          end
+
+          existing_file = group.files.find do |f|
+            f.path.to_s == "GoogleService-Info.plist"
+          end
+
+          unless existing_file
+            file_ref = group.new_file(
+              "GoogleService-Info.plist"
+            )
+
+            resources_phase = target.resources_build_phase
+
+            resources_phase.add_file_reference(
+              file_ref
+            )
+
+            puts "GoogleService-Info.plist added to Runner resources."
+          else
+            puts "GoogleService-Info.plist already exists in Runner resources."
+          end
+
+          project.save
+
+          puts "Xcode project updated successfully."
+          RUBY
+
+          echo ""
+          echo "Firebase plist added to Xcode resources."
+
+
       - name: Get Flutter packages
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -147,7 +271,7 @@ jobs:
           set -e
 
           echo "======================================"
-          echo "CONFIGURE iOS PERMISSIONS"
+          echo "CONFIGURE IOS PERMISSIONS"
           echo "======================================"
 
           /usr/bin/python3 - <<'PY'
@@ -156,7 +280,9 @@ jobs:
           plist = Path("ios/Runner/Info.plist")
 
           if not plist.exists():
-              raise SystemExit("ERROR: ios/Runner/Info.plist not found")
+              raise SystemExit(
+                  "ERROR: ios/Runner/Info.plist not found"
+              )
 
           content = plist.read_text()
 
@@ -197,13 +323,45 @@ jobs:
           PY
 
 
+      - name: Verify Firebase configuration
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "VERIFY FIREBASE CONFIGURATION"
+          echo "======================================"
+
+          if [ ! -f "ios/Runner/GoogleService-Info.plist" ]; then
+            echo "ERROR: Firebase plist missing."
+            exit 1
+          fi
+
+          echo ""
+          echo "Firebase App ID:"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :GOOGLE_APP_ID" \
+            ios/Runner/GoogleService-Info.plist
+
+          echo ""
+          echo "Firebase Project ID:"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :PROJECT_ID" \
+            ios/Runner/GoogleService-Info.plist
+
+          echo ""
+          echo "Firebase configuration verified."
+
+
       - name: Generate iOS configuration without signing
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -e
 
           echo "======================================"
-          echo "BUILD iOS WITHOUT SIGNING"
+          echo "BUILD IOS WITHOUT SIGNING"
           echo "======================================"
 
           flutter build ios \
@@ -220,7 +378,7 @@ jobs:
           set -e
 
           echo "======================================"
-          echo "VERIFY iOS APP"
+          echo "VERIFY IOS APP"
           echo "======================================"
 
           if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
@@ -236,6 +394,18 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             build/ios/iphoneos/Runner.app/Info.plist
+
+          echo ""
+          echo "Checking Firebase plist inside final app..."
+
+          if [ ! -f \
+            "build/ios/iphoneos/Runner.app/GoogleService-Info.plist"
+          ]; then
+            echo "ERROR: GoogleService-Info.plist is NOT inside Runner.app."
+            exit 1
+          fi
+
+          echo "GoogleService-Info.plist FOUND inside Runner.app."
 
           echo ""
           echo "iOS APP VERIFIED."
@@ -289,6 +459,12 @@ jobs:
           echo "======================================"
 
           unzip -t SWISSMARK.ipa
+
+          echo ""
+          echo "Checking Firebase plist in IPA..."
+
+          unzip -l SWISSMARK.ipa | grep \
+            "Payload/SWISSMARK.app/GoogleService-Info.plist"
 
           echo ""
           echo "IPA ARCHIVE VERIFIED."
