@@ -33,17 +33,38 @@ jobs:
           cd SWISSMARK_GITHUB_READY
           flutter pub get
 
-      - name: Verify iOS project
+      - name: Prepare iOS dependencies
         run: |
           cd SWISSMARK_GITHUB_READY
-          test -d ios
-          test -f ios/Runner.xcworkspace/contents.xcworkspacedata
-          echo "iOS project verified"
+          flutter precache --ios
+          flutter build ios --config-only
+          echo "iOS configuration prepared"
 
-      - name: Build iOS without signing
+      - name: Disable iOS code signing
         run: |
           cd SWISSMARK_GITHUB_READY
-          flutter build ios --release --no-codesign
+
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Verify iOS app
+        run: |
+          cd SWISSMARK_GITHUB_READY
+
+          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
+            echo "ERROR: Runner.app was not created"
+            exit 1
+          fi
+
+          echo "Runner.app created successfully"
+          ls -lh build/ios/iphoneos/Runner.app
 
       - name: Create unsigned IPA
         run: |
@@ -56,7 +77,9 @@ jobs:
 
           zip -r SWISSMARK.ipa Payload
 
-          echo "IPA created successfully"
+          echo "================================"
+          echo "SWISSMARK IPA CREATED"
+          echo "================================"
           ls -lh SWISSMARK.ipa
 
       - name: Upload IPA
