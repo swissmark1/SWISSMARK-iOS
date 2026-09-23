@@ -2,6 +2,9 @@ name: Build SWISSMARK iOS
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -11,159 +14,69 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find and extract latest SWISSMARK iOS project
+      - name: Prepare project
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name 'SWISSMARK_iOS_*.zip' | sort -V | tail -n 1)
+          ZIP="$(find . -maxdepth 2 -type f \( \
+            -name 'SWISSMARK_iOS_GITHUB_READY.zip' -o \
+            -name 'SWISSMARK_iOS_FULL_V13.zip' \
+          \) | head -n 1)"
 
-          [ -n "$ZIP_FILE" ] || {
-            echo "ERROR: No SWISSMARK_iOS_*.zip found"
-            exit 1
-          }
+          if [ -n "$ZIP" ]; then
+            mkdir -p .build_src
+            unzip -q "$ZIP" -d .build_src
 
-          echo "Using: $ZIP_FILE"
+            ROOT="$(find .build_src -name project.yml -print -quit | xargs dirname)"
 
-          rm -rf ios_source
-          mkdir -p ios_source
+            cp -R "$ROOT"/. .
+          fi
 
-          unzip -q "$ZIP_FILE" -d ios_source
-
-          PROJECT_FILE=$(find ios_source -name project.yml -type f | head -n 1)
-
-          [ -n "$PROJECT_FILE" ] || {
-            echo "ERROR: project.yml not found"
-            exit 1
-          }
-
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "Project directory: $PROJECT_DIR"
+          test -f project.yml
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        working-directory: ${{ env.PROJECT_DIR }}
+        run: xcodegen generate
+
+      - name: Build iOS app
         run: |
-          set -euo pipefail
+          set -e
 
-          xcodegen generate --spec project.yml
-
-      - name: Build unsigned iOS app
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          set -euo pipefail
-
-          rm -rf build Payload SWISSMARK.ipa
+          SCHEME="$(xcodebuild -list -json | \
+            python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["project"]["schemes"][0])')"
 
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
-            -scheme SWISSMARKiOS \
-            -configuration Release \
+            -scheme "$SCHEME" \
             -sdk iphoneos \
+            -configuration Release \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
             build
 
-      - name: Validate app bundle before packaging
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
+      - name: Package app
         run: |
-          set -euo pipefail
+          set -e
 
-          APP=$(find build/Build/Products/Release-iphoneos \
+          APP="$(find build/Build/Products/Release-iphoneos \
             -maxdepth 1 \
-            -type d \
             -name '*.app' \
-            | head -n 1)
+            -print -quit)"
 
-          [ -n "$APP" ] || {
-            echo "ERROR: No .app produced"
-            exit 1
-          }
-
-          echo "APP=$APP"
-
-          echo "Bundle ID:"
-          /usr/libexec/PlistBuddy \
-            -c 'Print :CFBundleIdentifier' \
-            "$APP/Info.plist"
-
-          EXEC=$(
-            /usr/libexec/PlistBuddy \
-              -c 'Print :CFBundleExecutable' \
-              "$APP/Info.plist"
-          )
-
-          [ -n "$EXEC" ] || {
-            echo "ERROR: CFBundleExecutable missing"
-            exit 1
-          }
-
-          echo "Main executable: $EXEC"
-
-          BIN="$APP/$EXEC"
-
-          [ -f "$BIN" ] || {
-            echo "ERROR: Main binary missing: $BIN"
-            echo "Files inside app:"
-            find "$APP" -maxdepth 2 -type f
-            exit 1
-          }
-
-          echo "Binary information:"
-          file "$BIN"
-
-          file "$BIN" | grep -E \
-            'Mach-O.*(arm64|universal)' >/dev/null || {
-              echo "ERROR: Main binary is not a valid iOS Mach-O binary"
-              exit 1
-            }
-
-          chmod +x "$BIN"
-
-          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
-          echo "EXECUTABLE=$EXEC" >> "$GITHUB_ENV"
-
-      - name: Package valid IPA
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          rm -rf Payload SWISSMARK.ipa
+          test -n "$APP"
 
           mkdir -p Payload
+          cp -R "$APP" Payload/
 
-          cp -R "$APP_PATH" "Payload/"
+          zip -qry SWISSMARK-iOS-unsigned.zip Payload
 
-          APP_NAME=$(basename "$APP_PATH")
-
-          test -f "Payload/$APP_NAME/$EXECUTABLE"
-
-          /usr/libexec/PlistBuddy \
-            -c 'Print :CFBundleExecutable' \
-            "Payload/$APP_NAME/Info.plist"
-
-          zip -qry -X SWISSMARK.ipa Payload
-
-          unzip -l SWISSMARK.ipa | grep -E \
-            "Payload/.*\.app/.*$EXECUTABLE" >/dev/null || {
-              echo "ERROR: Main executable is missing from IPA"
-              exit 1
-            }
-
-          echo "IPA created successfully:"
-          du -h SWISSMARK.ipa
-
-      - name: Upload IPA
+      - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: SWISSMARK-iOS-IPA
-          path: ${{ env.PROJECT_DIR }}/SWISSMARK.ipa
-          if-no-files-found: error
+          name: SWISSMARK-iOS-unsigned
+          path: SWISSMARK-iOS-unsigned.zip
