@@ -9,120 +9,204 @@ jobs:
 
     steps:
 
+      # 1. تحميل المشروع
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # 2. تثبيت Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
 
+
+      # 3. فك ملف المشروع
       - name: Extract SWISSMARK project
         run: |
+          echo "=============================="
+          echo "EXTRACTING SWISSMARK PROJECT"
+          echo "=============================="
+
           unzip -o SWISSMARK_GITHUB_READY_FIXED.zip
-          echo "=== Extracted files ==="
+
+          echo ""
+          echo "=== Repository files ==="
           ls -la
 
+          echo ""
+          echo "=== Project folder ==="
+          ls -la SWISSMARK_GITHUB_READY
+
+
+      # 4. إنشاء iOS من جديد
       - name: Prepare Flutter iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
 
-          echo "=== Flutter version ==="
+          echo "=============================="
+          echo "FLUTTER VERSION"
+          echo "=============================="
           flutter --version
 
-          echo "=== Removing old iOS folder ==="
+          echo ""
+          echo "=============================="
+          echo "REMOVE OLD IOS"
+          echo "=============================="
+
           rm -rf ios
 
-          echo "=== Creating fresh iOS project ==="
+          echo ""
+          echo "=============================="
+          echo "CREATE FRESH IOS PROJECT"
+          echo "=============================="
+
           flutter create \
             --platforms=ios \
             --org com.swissmark \
             .
 
-          echo "=== Checking iOS folder ==="
+          echo ""
+          echo "=============================="
+          echo "IOS FILES"
+          echo "=============================="
+
           ls -la ios
 
-          echo "=== Checking Podfile ==="
-          if [ ! -f "ios/Podfile" ]; then
-            echo "ERROR: Podfile was NOT created"
-            exit 1
-          fi
 
-          echo "Podfile exists successfully"
-
+      # 5. جلب مكتبات Flutter
       - name: Get Flutter packages
         run: |
           cd SWISSMARK_GITHUB_READY
+
+          echo "=============================="
+          echo "FLUTTER PUB GET"
+          echo "=============================="
+
           flutter pub get
 
+          echo ""
+          echo "=============================="
+          echo "CHECK PODFILE"
+          echo "=============================="
+
+          if [ -f "ios/Podfile" ]; then
+            echo "Podfile FOUND"
+          else
+            echo "Podfile NOT FOUND"
+            echo "This is allowed if the project has no CocoaPods plugins."
+          fi
+
+
+      # 6. تثبيت CocoaPods فقط إذا كان Podfile موجود
       - name: Prepare iOS dependencies
         run: |
-          cd SWISSMARK_GITHUB_READY/ios
+          cd SWISSMARK_GITHUB_READY
 
-          echo "=== Installing CocoaPods ==="
-          pod install --repo-update
+          echo "=============================="
+          echo "IOS DEPENDENCIES"
+          echo "=============================="
 
-          echo "=== Pods installed ==="
-          ls -la
+          if [ -f "ios/Podfile" ]; then
 
+            echo "Podfile exists."
+            echo "Installing CocoaPods..."
+
+            cd ios
+
+            pod install --repo-update
+
+            echo ""
+            echo "CocoaPods installation completed."
+
+          else
+
+            echo "No Podfile."
+            echo "Skipping CocoaPods."
+
+          fi
+
+
+      # 7. بناء تطبيق iOS بدون توقيع
       - name: Build iOS without signing
         run: |
           cd SWISSMARK_GITHUB_READY
+
+          echo "=============================="
+          echo "BUILD IOS"
+          echo "=============================="
 
           flutter build ios \
             --release \
             --no-codesign
 
-      - name: Disable signing and build archive
-        run: |
-          cd SWISSMARK_GITHUB_READY
 
-          xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            build
-
+      # 8. التأكد من وجود Runner.app
       - name: Verify iOS app
         run: |
           cd SWISSMARK_GITHUB_READY
 
-          echo "=== Checking Runner.app ==="
+          echo "=============================="
+          echo "VERIFY IOS APP"
+          echo "=============================="
 
-          if [ ! -d "build/ios/iphoneos/Runner.app" ]; then
-            echo "ERROR: Runner.app was not created"
+          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+
+            echo ""
+            echo "================================"
+            echo "RUNNER.APP CREATED SUCCESSFULLY"
+            echo "================================"
+
+            ls -lh build/ios/iphoneos/Runner.app
+
+          else
+
+            echo ""
+            echo "================================"
+            echo "ERROR: RUNNER.APP NOT FOUND"
+            echo "================================"
+
+            echo ""
+            echo "=== Build directory ==="
+            find build -maxdepth 4 -type d 2>/dev/null || true
+
             exit 1
+
           fi
 
-          echo "Runner.app exists!"
-          ls -lh build/ios/iphoneos/Runner.app
 
+      # 9. إنشاء IPA بدون توقيع
       - name: Create unsigned IPA
         run: |
           cd SWISSMARK_GITHUB_READY
 
-          echo "=== Creating IPA ==="
+          echo "=============================="
+          echo "CREATE IPA"
+          echo "=============================="
 
           rm -rf Payload
+          rm -f SWISSMARK.ipa
+
           mkdir -p Payload
 
           cp -R \
             build/ios/iphoneos/Runner.app \
             Payload/SWISSMARK.app
 
-          zip -r SWISSMARK.ipa Payload
+          echo ""
+          echo "Creating IPA..."
 
-          echo "=============================="
+          zip -r -q SWISSMARK.ipa Payload
+
+          echo ""
+          echo "================================"
           echo "SWISSMARK IPA CREATED"
-          echo "=============================="
+          echo "================================"
 
           ls -lh SWISSMARK.ipa
 
+
+      # 10. رفع IPA كـ Artifact
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
