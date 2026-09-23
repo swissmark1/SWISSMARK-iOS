@@ -80,3 +80,48 @@ jobs:
         with:
           name: SWISSMARK-iOS-unsigned
           path: SWISSMARK-iOS-unsigned.zip
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iOS app
+        run: |
+          set -e
+
+          SCHEME="$(xcodebuild -list -json | \
+            python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["project"]["schemes"][0])')"
+
+          xcodebuild \
+            -project SWISSMARKiOS.xcodeproj \
+            -scheme "$SCHEME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package app
+        run: |
+          set -e
+
+          APP="$(find build/Build/Products/Release-iphoneos \
+            -maxdepth 1 \
+            -name '*.app' \
+            -print -quit)"
+
+          test -n "$APP"
+
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+
+          zip -qry SWISSMARK-iOS-unsigned.zip Payload
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-iOS-unsigned
+          path: SWISSMARK-iOS-unsigned.zip
