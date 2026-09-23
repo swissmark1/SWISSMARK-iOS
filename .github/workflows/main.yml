@@ -18,30 +18,30 @@ jobs:
 
           ZIP_FILE=$(find . -maxdepth 1 -type f -name 'SWISSMARK_iOS_*.zip' | sort -V | tail -n 1)
 
-          if [ -z "${ZIP_FILE}" ]; then
-            echo "ERROR: No SWISSMARK_iOS_*.zip found in repository root."
+          [ -n "$ZIP_FILE" ] || {
+            echo "ERROR: No SWISSMARK_iOS_*.zip found"
             exit 1
-          fi
+          }
 
-          echo "Using ${ZIP_FILE}"
+          echo "Using: $ZIP_FILE"
 
           rm -rf ios_source
           mkdir -p ios_source
 
-          unzip -q "${ZIP_FILE}" -d ios_source
+          unzip -q "$ZIP_FILE" -d ios_source
 
           PROJECT_FILE=$(find ios_source -name project.yml -type f | head -n 1)
 
-          if [ -z "${PROJECT_FILE}" ]; then
-            echo "ERROR: project.yml not found inside ${ZIP_FILE}"
+          [ -n "$PROJECT_FILE" ] || {
+            echo "ERROR: project.yml not found"
             exit 1
-          fi
+          }
 
-          PROJECT_DIR=$(dirname "${PROJECT_FILE}")
+          PROJECT_DIR=$(dirname "$PROJECT_FILE")
 
-          echo "PROJECT_DIR=${PROJECT_DIR}" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Found project at ${PROJECT_DIR}"
+          echo "Project directory: $PROJECT_DIR"
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -49,12 +49,16 @@ jobs:
       - name: Generate Xcode project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
+          set -euo pipefail
+
           xcodegen generate --spec project.yml
 
-      - name: Build SWISSMARK iOS
+      - name: Build unsigned iOS app
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euo pipefail
+
+          rm -rf build Payload SWISSMARK.ipa
 
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
@@ -66,8 +70,69 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Package IPA
+      - name: Validate app bundle before packaging
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP=$(find build/Build/Products/Release-iphoneos \
+            -maxdepth 1 \
+            -type d \
+            -name '*.app' \
+            | head -n 1)
+
+          [ -n "$APP" ] || {
+            echo "ERROR: No .app produced"
+            exit 1
+          }
+
+          echo "APP=$APP"
+
+          echo "Bundle ID:"
+          /usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleIdentifier' \
+            "$APP/Info.plist"
+
+          EXEC=$(
+            /usr/libexec/PlistBuddy \
+              -c 'Print :CFBundleExecutable' \
+              "$APP/Info.plist"
+          )
+
+          [ -n "$EXEC" ] || {
+            echo "ERROR: CFBundleExecutable missing"
+            exit 1
+          }
+
+          echo "Main executable: $EXEC"
+
+          BIN="$APP/$EXEC"
+
+          [ -f "$BIN" ] || {
+            echo "ERROR: Main binary missing: $BIN"
+            echo "Files inside app:"
+            find "$APP" -maxdepth 2 -type f
+            exit 1
+          }
+
+          echo "Binary information:"
+          file "$BIN"
+
+          file "$BIN" | grep -E \
+            'Mach-O.*(arm64|universal)' >/dev/null || {
+              echo "ERROR: Main binary is not a valid iOS Mach-O binary"
+              exit 1
+            }
+
+          chmod +x "$BIN"
+
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          echo "EXECUTABLE=$EXEC" >> "$GITHUB_ENV"
+
+      - name: Package valid IPA
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -75,14 +140,30 @@ jobs:
 
           mkdir -p Payload
 
-          cp -R \
-            build/Build/Products/Release-iphoneos/SWISSMARKiOS.app \
-            Payload/SWISSMARK.app
+          cp -R "$APP_PATH" "Payload/"
 
-          zip -qry SWISSMARK.ipa Payload
+          APP_NAME=$(basename "$APP_PATH")
+
+          test -f "Payload/$APP_NAME/$EXECUTABLE"
+
+          /usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleExecutable' \
+            "Payload/$APP_NAME/Info.plist"
+
+          zip -qry -X SWISSMARK.ipa Payload
+
+          unzip -l SWISSMARK.ipa | grep -E \
+            "Payload/.*\.app/.*$EXECUTABLE" >/dev/null || {
+              echo "ERROR: Main executable is missing from IPA"
+              exit 1
+            }
+
+          echo "IPA created successfully:"
+          du -h SWISSMARK.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-iOS-IPA
           path: ${{ env.PROJECT_DIR }}/SWISSMARK.ipa
+          if-no-files-found: error
