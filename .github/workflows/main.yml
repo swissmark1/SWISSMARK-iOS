@@ -19,14 +19,14 @@ jobs:
       - name: Extract SWISSMARK project
         run: |
           unzip -o SWISSMARK_GITHUB_READY_FIXED.zip
-          echo "Project extracted successfully"
+          echo "Project extracted"
           ls -la
 
       - name: Prepare Flutter iOS project
         run: |
           cd SWISSMARK_GITHUB_READY
           flutter create --platforms=ios .
-          echo "Flutter iOS project prepared"
+          echo "iOS project prepared"
 
       - name: Get Flutter packages
         run: |
@@ -37,10 +37,11 @@ jobs:
         run: |
           cd SWISSMARK_GITHUB_READY
           flutter precache --ios
-          flutter build ios --config-only
-          echo "iOS configuration prepared"
+          cd ios
+          pod install
+          echo "Pods installed successfully"
 
-      - name: Disable iOS code signing
+      - name: Disable iOS signing
         run: |
           cd SWISSMARK_GITHUB_READY
 
@@ -52,6 +53,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
             build
 
       - name: Verify iOS app
@@ -77,9 +79,7 @@ jobs:
 
           zip -r SWISSMARK.ipa Payload
 
-          echo "================================"
           echo "SWISSMARK IPA CREATED"
-          echo "================================"
           ls -lh SWISSMARK.ipa
 
       - name: Upload IPA
