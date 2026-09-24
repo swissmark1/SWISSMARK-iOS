@@ -1,0 +1,25 @@
+name: SWISSMARKiOS
+options:
+  deploymentTarget:
+    iOS: 17.0
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    DEVELOPMENT_TEAM: ""
+targets:
+  SWISSMARKiOS:
+    type: application
+    platform: iOS
+    sources:
+      - SWISSMARKiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.swissmark.ios
+        INFOPLIST_KEY_CFBundleDisplayName: SWISS MARK
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        SWIFT_EMIT_LOC_STRINGS: true
+    info:
+      path: SWISSMARKiOS/Info.plist
