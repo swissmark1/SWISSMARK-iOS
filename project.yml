@@ -5,6 +5,11 @@ options:
   deploymentTarget:
     iOS: "17.0"
 
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    from: 11.0.0
+
 targets:
   SWISSMARKiOS:
     type: application
@@ -12,6 +17,10 @@ targets:
 
     sources:
       - SWISSMARKiOS
+
+    dependencies:
+      - package: Firebase
+        product: FirebaseCore
 
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.swissmark.ios
