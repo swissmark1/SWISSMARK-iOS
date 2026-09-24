@@ -11,70 +11,33 @@ permissions:
 
 jobs:
   build:
-    name: Build SWISSMARK iOS
     runs-on: macos-15
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check repository
-        run: |
-          echo "=== Repository files ==="
-          find . -maxdepth 3 -type f | sort
-
-      - name: Prepare iOS source
+      - name: Extract V14 project
         shell: bash
         run: |
           set -e
 
-          if [ -d "SWISSMARKiOS" ]; then
-            echo "SWISSMARKiOS source directory already exists."
-            exit 0
-          fi
+          ZIP_FILE="SWISSMARK_iOS_SOURCE_PORT_V14.zip"
 
-          echo "SWISSMARKiOS directory not found."
-          echo "Searching ZIP files..."
-
-          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -1 || true)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file containing the iOS source was found."
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: $ZIP_FILE not found"
             exit 1
           fi
 
-          echo "Using ZIP:"
-          echo "$ZIP_FILE"
+          rm -rf SWISSMARKiOS
+          rm -f project.yml
 
-          mkdir -p extracted_ios
-          unzip -q "$ZIP_FILE" -d extracted_ios
+          unzip -o "$ZIP_FILE" -d .
 
-          echo "=== Extracted files ==="
-          find extracted_ios -maxdepth 4 -type f | sort | head -300
-
-          SOURCE_DIR=$(find extracted_ios -type d -name "SWISSMARKiOS" | head -1 || true)
-
-          if [ -z "$SOURCE_DIR" ]; then
-            echo "ERROR: SWISSMARKiOS directory was not found inside the ZIP."
-            exit 1
-          fi
-
-          echo "Found source:"
-          echo "$SOURCE_DIR"
-
-          cp -R "$SOURCE_DIR" ./SWISSMARKiOS
-
-          echo "=== Final source ==="
-          find SWISSMARKiOS -maxdepth 3 -type f | sort
-
-      - name: Verify project files
-        run: |
-          test -f project.yml
-          test -d SWISSMARKiOS
-
-          echo "project.yml: OK"
-          echo "SWISSMARKiOS: OK"
+          echo "=== Project files ==="
+          ls -la
+          echo "=== iOS source ==="
+          find SWISSMARKiOS -maxdepth 2 -type f | sort
 
       - name: Install XcodeGen
         run: |
@@ -83,20 +46,6 @@ jobs:
       - name: Generate Xcode project
         run: |
           xcodegen generate
-
-      - name: Xcode information
-        run: |
-          xcodebuild -version
-          xcodegen --version
-
-      - name: Clean
-        run: |
-          xcodebuild clean \
-            -project SWISSMARKiOS.xcodeproj \
-            -scheme SWISSMARKiOS \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
 
       - name: Build iOS app
         shell: bash
@@ -118,38 +67,34 @@ jobs:
 
       - name: Verify app
         run: |
-          APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
+          APP_PATH=$(find build -type d -name "SWISSMARKiOS.app" | head -1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: SWISSMARKiOS.app was not created."
+            echo "ERROR: SWISSMARKiOS.app not found"
             exit 1
           fi
 
-          echo "APP:"
+          echo "APP FOUND:"
           echo "$APP_PATH"
 
-          echo "=== Executable ==="
           file "$APP_PATH/SWISSMARKiOS"
 
       - name: Create IPA
         run: |
-          APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
+          APP_PATH=$(find build -type d -name "SWISSMARKiOS.app" | head -1)
 
           rm -rf Payload
-          mkdir -p Payload
+          mkdir Payload
 
           cp -R "$APP_PATH" Payload/SWISSMARKiOS.app
 
-          zip -r -q SWISSMARK-iOS.ipa Payload
-
-          ls -lh SWISSMARK-iOS.ipa
+          zip -r SWISSMARK-iOS.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: SWISSMARK-iOS
           path: SWISSMARK-iOS.ipa
-          if-no-files-found: error
 
       - name: Upload build log
         if: always()
