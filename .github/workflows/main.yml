@@ -16,36 +16,79 @@ jobs:
 
     steps:
 
-      # 1. تحميل المشروع
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. التأكد من ملفات المشروع
-      - name: Check project files
+      - name: Check repository
         run: |
-          echo "=== Repository ==="
-          pwd
-          echo "=== Files ==="
-          find . -maxdepth 3 -type f | sort | head -300
+          echo "=== Repository files ==="
+          find . -maxdepth 3 -type f | sort
 
-      # 3. تثبيت XcodeGen
+      - name: Prepare iOS source
+        shell: bash
+        run: |
+          set -e
+
+          if [ -d "SWISSMARKiOS" ]; then
+            echo "SWISSMARKiOS source directory already exists."
+            exit 0
+          fi
+
+          echo "SWISSMARKiOS directory not found."
+          echo "Searching ZIP files..."
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -1 || true)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file containing the iOS source was found."
+            exit 1
+          fi
+
+          echo "Using ZIP:"
+          echo "$ZIP_FILE"
+
+          mkdir -p extracted_ios
+          unzip -q "$ZIP_FILE" -d extracted_ios
+
+          echo "=== Extracted files ==="
+          find extracted_ios -maxdepth 4 -type f | sort | head -300
+
+          SOURCE_DIR=$(find extracted_ios -type d -name "SWISSMARKiOS" | head -1 || true)
+
+          if [ -z "$SOURCE_DIR" ]; then
+            echo "ERROR: SWISSMARKiOS directory was not found inside the ZIP."
+            exit 1
+          fi
+
+          echo "Found source:"
+          echo "$SOURCE_DIR"
+
+          cp -R "$SOURCE_DIR" ./SWISSMARKiOS
+
+          echo "=== Final source ==="
+          find SWISSMARKiOS -maxdepth 3 -type f | sort
+
+      - name: Verify project files
+        run: |
+          test -f project.yml
+          test -d SWISSMARKiOS
+
+          echo "project.yml: OK"
+          echo "SWISSMARKiOS: OK"
+
       - name: Install XcodeGen
         run: |
-          brew update
           brew install xcodegen
 
-      # 4. إنشاء Xcode project من project.yml
       - name: Generate Xcode project
         run: |
           xcodegen generate
 
-      # 5. عرض معلومات Xcode
       - name: Xcode information
         run: |
           xcodebuild -version
           xcodegen --version
 
-      # 6. تنظيف المشروع
       - name: Clean
         run: |
           xcodebuild clean \
@@ -55,8 +98,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
-      # 7. بناء نسخة iOS بدون توقيع Apple
       - name: Build iOS app
+        shell: bash
         run: |
           set -o pipefail
 
@@ -73,28 +116,21 @@ jobs:
             DEVELOPMENT_TEAM="" \
             | tee build.log
 
-      # 8. فحص ملف التطبيق
       - name: Verify app
         run: |
-          echo "=== Built files ==="
-          find build -maxdepth 6 -type d -name "*.app" -print
-
           APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: SWISSMARKiOS.app was not created"
+            echo "ERROR: SWISSMARKiOS.app was not created."
             exit 1
           fi
 
-          echo "APP FOUND:"
+          echo "APP:"
           echo "$APP_PATH"
 
-          echo "=== App executable ==="
-          ls -lh "$APP_PATH/SWISSMARKiOS"
-
+          echo "=== Executable ==="
           file "$APP_PATH/SWISSMARKiOS"
 
-      # 9. تجهيز Payload
       - name: Create IPA
         run: |
           APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
@@ -104,14 +140,10 @@ jobs:
 
           cp -R "$APP_PATH" Payload/SWISSMARKiOS.app
 
-          rm -f SWISSMARK-iOS.ipa
-
           zip -r -q SWISSMARK-iOS.ipa Payload
 
-          echo "=== IPA ==="
           ls -lh SWISSMARK-iOS.ipa
 
-      # 10. رفع IPA
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +151,6 @@ jobs:
           path: SWISSMARK-iOS.ipa
           if-no-files-found: error
 
-      # 11. رفع سجل البناء إذا فشل
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
