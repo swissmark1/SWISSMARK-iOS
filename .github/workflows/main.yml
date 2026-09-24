@@ -3,15 +3,14 @@ name: Build SWISSMARK iOS
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build SWISSMARK iOS
+    name: Build and verify SWISSMARK iOS
     runs-on: macos-15
 
     steps:
@@ -22,26 +21,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           test -f project.yml
           test -d SWISSMARKiOS
           test -f SWISSMARKiOS/SWISSMARKiOSApp.swift
           test -f SWISSMARKiOS/Info.plist
-
-          echo "iOS source found:"
-          find SWISSMARKiOS -maxdepth 2 -type f -print
+          echo "Source layout OK"
 
       - name: Install XcodeGen
-        run: |
-          brew install xcodegen
+        run: brew install xcodegen
 
       - name: Generate Xcode project
         run: |
           set -euo pipefail
-          xcodegen generate --spec project.yml
+          xcodegen generate
           test -d SWISSMARKiOS.xcodeproj
 
-      - name: Show Xcode information
+      - name: Xcode information
         run: |
           xcodebuild -version
           xcodegen --version
@@ -59,51 +54,74 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-
           rm -rf build
-
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
             -scheme SWISSMARKiOS \
-            -configuration Release \
             -sdk iphoneos \
+            -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            build | tee build.log
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            | tee build.log
 
-      - name: Verify app
+      - name: Verify real iOS app bundle
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_PATH="$(find build -type d -name '*.app' -print -quit)"
-
+          APP_PATH="$(find build -type d -name 'SWISSMARKiOS.app' -print -quit)"
           test -n "$APP_PATH"
-          test -f "$APP_PATH/SWISSMARKiOS"
+          test -d "$APP_PATH"
 
-          echo "APP: $APP_PATH"
+          EXECUTABLE="$APP_PATH/SWISSMARKiOS"
+          test -f "$EXECUTABLE"
+          test -x "$EXECUTABLE"
+
+          echo "=== APP ==="
+          echo "$APP_PATH"
           du -sh "$APP_PATH"
-          file "$APP_PATH/SWISSMARKiOS"
+
+          echo "=== EXECUTABLE ==="
+          ls -lh "$EXECUTABLE"
+          file "$EXECUTABLE"
+          xcrun lipo -info "$EXECUTABLE"
+          otool -hv "$EXECUTABLE"
+
+          echo "=== INFO.PLIST ==="
+          plutil -p "$APP_PATH/Info.plist"
+
+          BUNDLE_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+          test "$BUNDLE_EXECUTABLE" = "SWISSMARKiOS"
+
+          echo "=== APP CONTENTS ==="
+          find "$APP_PATH" -maxdepth 2 -type f -print | sort
+
+          echo "=== SIGNATURE STATUS ==="
+          codesign -dvv "$APP_PATH" 2>&1 || true
 
       - name: Create IPA
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_PATH="$(find build -type d -name '*.app' -print -quit)"
-
+          APP_PATH="$(find build -type d -name 'SWISSMARKiOS.app' -print -quit)"
           rm -rf Payload SWISSMARK-iOS.ipa
           mkdir -p Payload
+          cp -R "$APP_PATH" Payload/SWISSMARKiOS.app
 
-          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry SWISSMARK-iOS.ipa Payload
 
-          zip -qry SWISSMARK-iOS.ipa Payload
-
+          echo "=== IPA ==="
           ls -lh SWISSMARK-iOS.ipa
+          unzip -l SWISSMARK-iOS.ipa | head -80
+
+          echo "=== IPA STRUCTURE CHECK ==="
+          unzip -Z1 SWISSMARK-iOS.ipa | grep -qx 'Payload/SWISSMARKiOS.app/Info.plist'
+          unzip -Z1 SWISSMARK-iOS.ipa | grep -qx 'Payload/SWISSMARKiOS.app/SWISSMARKiOS'
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -111,6 +129,7 @@ jobs:
           name: SWISSMARK-iOS
           path: SWISSMARK-iOS.ipa
           if-no-files-found: error
+          overwrite: true
 
       - name: Upload build log
         if: always()
@@ -119,3 +138,4 @@ jobs:
           name: SWISSMARK-build-log
           path: build.log
           if-no-files-found: ignore
+          overwrite: true
