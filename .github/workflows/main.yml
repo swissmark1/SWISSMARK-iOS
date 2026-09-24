@@ -11,46 +11,175 @@ permissions:
 
 jobs:
   build:
+    name: Build SWISSMARK iOS
     runs-on: macos-15
 
     steps:
-      - name: Checkout
+
+      # =========================================================
+      # 1. Checkout
+      # =========================================================
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract V14 project
+      # =========================================================
+      # 2. Find and extract the actual SWISSMARK iOS source
+      # =========================================================
+      - name: Prepare SWISSMARK source
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          ZIP_FILE="SWISSMARK_iOS_SOURCE_PORT_V14.zip"
+          echo "========================================"
+          echo "SWISSMARK SOURCE PREPARATION"
+          echo "========================================"
 
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE not found"
+          echo "Repository:"
+          pwd
+
+          echo
+          echo "Root files:"
+          find . -maxdepth 2 -type f -print | sort
+
+          ZIP_FILE="$(find . -maxdepth 1 -type f \
+            -name 'SWISSMARK_iOS_SOURCE_PORT_*.zip' \
+            -print | head -n 1)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo
+            echo "ERROR: SWISSMARK iOS source ZIP was not found."
+            echo
+            echo "Expected:"
+            echo "SWISSMARK_iOS_SOURCE_PORT_*.zip"
+            echo
+            echo "Files found:"
+            find . -maxdepth 2 -type f -print | sort
             exit 1
           fi
 
+          echo
+          echo "Source archive:"
+          echo "$ZIP_FILE"
+
+          rm -rf _ios_source
+          mkdir -p _ios_source
+
+          unzip -q "$ZIP_FILE" -d _ios_source
+
+          echo
+          echo "Extracted files:"
+          find _ios_source -maxdepth 3 -type f -print | sort
+
+          if [ ! -f "_ios_source/project.yml" ]; then
+            echo
+            echo "ERROR: project.yml was not found inside the source ZIP."
+            exit 1
+          fi
+
+          if [ ! -d "_ios_source/SWISSMARKiOS" ]; then
+            echo
+            echo "ERROR: SWISSMARKiOS source directory was not found."
+            exit 1
+          fi
+
+          if [ ! -f "_ios_source/SWISSMARKiOS/SWISSMARKiOSApp.swift" ]; then
+            echo
+            echo "ERROR: SWISSMARKiOSApp.swift was not found."
+            exit 1
+          fi
+
+          # Remove any old repository project files.
           rm -rf SWISSMARKiOS
           rm -f project.yml
+          rm -rf SWISSMARKiOS.xcodeproj
 
-          unzip -o "$ZIP_FILE" -d .
+          # Copy ONLY the actual project.
+          cp "_ios_source/project.yml" ./project.yml
+          cp -R "_ios_source/SWISSMARKiOS" ./SWISSMARKiOS
 
-          echo "=== Project files ==="
-          ls -la
-          echo "=== iOS source ==="
-          find SWISSMARKiOS -maxdepth 2 -type f | sort
+          echo
+          echo "========================================"
+          echo "FINAL PROJECT"
+          echo "========================================"
 
+          echo
+          echo "project.yml:"
+          cat project.yml
+
+          echo
+          echo "Swift files:"
+          find SWISSMARKiOS -maxdepth 1 -type f -name '*.swift' -print | sort
+
+      # =========================================================
+      # 3. Install XcodeGen
+      # =========================================================
       - name: Install XcodeGen
+        shell: bash
         run: |
-          brew install xcodegen
+          set -euo pipefail
 
+          if command -v xcodegen >/dev/null 2>&1; then
+            echo "XcodeGen already installed."
+          else
+            brew install xcodegen
+          fi
+
+          xcodegen --version
+
+      # =========================================================
+      # 4. Generate Xcode project
+      # =========================================================
       - name: Generate Xcode project
+        shell: bash
         run: |
+          set -euo pipefail
+
+          rm -rf SWISSMARKiOS.xcodeproj
+
           xcodegen generate
 
+          if [ ! -d "SWISSMARKiOS.xcodeproj" ]; then
+            echo "ERROR: Xcode project was not generated."
+            exit 1
+          fi
+
+          echo
+          echo "Xcode project generated successfully."
+
+      # =========================================================
+      # 5. Show Xcode information
+      # =========================================================
+      - name: Xcode information
+        run: |
+          xcodebuild -version
+          swift --version
+          xcodegen --version
+
+      # =========================================================
+      # 6. Clean
+      # =========================================================
+      - name: Clean build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcodebuild clean \
+            -project SWISSMARKiOS.xcodeproj \
+            -scheme SWISSMARKiOS \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      # =========================================================
+      # 7. Build
+      # =========================================================
       - name: Build iOS app
         shell: bash
         run: |
           set -o pipefail
+
+          rm -rf build
+          mkdir -p build
 
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
@@ -65,20 +194,96 @@ jobs:
             DEVELOPMENT_TEAM="" \
             | tee build.log
 
-      - name: Verify app
+      # =========================================================
+      # 8. Verify the generated .app
+      # =========================================================
+      - name: Verify iOS app
+        shell: bash
         run: |
-          APP_PATH=$(find build -type d -name "SWISSMARKiOS.app" | head -1)
+          set -euo pipefail
+
+          APP_PATH="$(find build \
+            -type d \
+            -name 'SWISSMARKiOS.app' \
+            -print -quit)"
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: SWISSMARKiOS.app not found"
+            echo "ERROR: SWISSMARKiOS.app was not generated."
             exit 1
           fi
 
-          echo "APP FOUND:"
+          if [ ! -f "$APP_PATH/SWISSMARKiOS" ]; then
+            echo "ERROR: Main iOS executable was not found."
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "APP FOUND"
+          echo "========================================"
+
           echo "$APP_PATH"
 
+          echo
+          echo "Executable:"
           file "$APP_PATH/SWISSMARKiOS"
 
+          echo
+          echo "App size:"
+          du -sh "$APP_PATH"
+
+      # =========================================================
+      # 9. Create IPA
+      # =========================================================
+      - name: Create IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find build \
+            -type d \
+            -name 'SWISSMARKiOS.app' \
+            -print -quit)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: App not found."
+            exit 1
+          fi
+
+          rm -rf Payload
+          rm -f SWISSMARK-iOS.ipa
+
+          mkdir -p Payload
+
+          cp -R "$APP_PATH" Payload/SWISSMARKiOS.app
+
+          cd Payload
+          zip -r -q ../SWISSMARK-iOS.ipa SWISSMARKiOS.app
+          cd ..
+
+          echo
+          echo "IPA created:"
+          ls -lh SWISSMARK-iOS.ipa
+
+      # =========================================================
+      # 10. Upload IPA
+      # =========================================================
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-iOS
+          path: SWISSMARK-iOS.ipa
+          if-no-files-found: error
+
+      # =========================================================
+      # 11. Always upload build log
+      # =========================================================
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-build-log
+          path: build.log
+          if-no-files-found: ignore
       - name: Create IPA
         run: |
           APP_PATH=$(find build -type d -name "SWISSMARKiOS.app" | head -1)
