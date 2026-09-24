@@ -6,104 +6,124 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build SWISSMARK iOS
     runs-on: macos-15
 
     steps:
+
+      # 1. تحميل المشروع
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare project
-        shell: bash
+      # 2. التأكد من ملفات المشروع
+      - name: Check project files
         run: |
-          set -e
+          echo "=== Repository ==="
+          pwd
+          echo "=== Files ==="
+          find . -maxdepth 3 -type f | sort | head -300
 
-          rm -rf .build_src
-          mkdir -p .build_src
-
-          ZIP="$(find . -maxdepth 2 -type f -name '*.zip' | head -n 1)"
-
-          if [ -n "$ZIP" ]; then
-            echo "Using ZIP: $ZIP"
-            unzip -q "$ZIP" -d .build_src
-          fi
-
-          PROJECT="$(find .build_src -name project.yml -print -quit)"
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: project.yml not found"
-            find . -maxdepth 5 -type f | head -200
-            exit 1
-          fi
-
-          ROOT="$(dirname "$PROJECT")"
-          echo "Project root: $ROOT"
-
-          cp -R "$ROOT"/. .
-
-          test -f project.yml
-
+      # 3. تثبيت XcodeGen
       - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build iOS app
-        shell: bash
         run: |
-          set -e
+          brew update
+          brew install xcodegen
 
-          SCHEME="$(xcodebuild -list -json | \
-            python3 -c '
-          import json
-          import sys
-          data = json.load(sys.stdin)
-          print(data["project"]["schemes"][0])
-          ')"
+      # 4. إنشاء Xcode project من project.yml
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate
 
-          echo "Scheme: $SCHEME"
+      # 5. عرض معلومات Xcode
+      - name: Xcode information
+        run: |
+          xcodebuild -version
+          xcodegen --version
+
+      # 6. تنظيف المشروع
+      - name: Clean
+        run: |
+          xcodebuild clean \
+            -project SWISSMARKiOS.xcodeproj \
+            -scheme SWISSMARKiOS \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      # 7. بناء نسخة iOS بدون توقيع Apple
+      - name: Build iOS app
+        run: |
+          set -o pipefail
 
           xcodebuild \
             -project SWISSMARKiOS.xcodeproj \
-            -scheme "$SCHEME" \
+            -scheme SWISSMARKiOS \
             -sdk iphoneos \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            build
+            | tee build.log
 
-      - name: Package app
-        shell: bash
+      # 8. فحص ملف التطبيق
+      - name: Verify app
         run: |
-          set -e
+          echo "=== Built files ==="
+          find build -maxdepth 6 -type d -name "*.app" -print
 
-          APP="$(find \
-            build/Build/Products/Release-iphoneos \
-            -maxdepth 1 \
-            -name '*.app' \
-            -print \
-            -quit)"
+          APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
 
-          if [ -z "$APP" ]; then
-            echo "ERROR: iOS .app was not created"
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: SWISSMARKiOS.app was not created"
             exit 1
           fi
 
+          echo "APP FOUND:"
+          echo "$APP_PATH"
+
+          echo "=== App executable ==="
+          ls -lh "$APP_PATH/SWISSMARKiOS"
+
+          file "$APP_PATH/SWISSMARKiOS"
+
+      # 9. تجهيز Payload
+      - name: Create IPA
+        run: |
+          APP_PATH=$(find build -maxdepth 6 -type d -name "SWISSMARKiOS.app" | head -1)
+
           rm -rf Payload
-          rm -f SWISSMARK-iOS-unsigned.zip
-
           mkdir -p Payload
-          cp -R "$APP" Payload/
 
-          zip -qry SWISSMARK-iOS-unsigned.zip Payload
+          cp -R "$APP_PATH" Payload/SWISSMARKiOS.app
 
-      - name: Upload build
+          rm -f SWISSMARK-iOS.ipa
+
+          zip -r -q SWISSMARK-iOS.ipa Payload
+
+          echo "=== IPA ==="
+          ls -lh SWISSMARK-iOS.ipa
+
+      # 10. رفع IPA
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: SWISSMARK-iOS-unsigned
-          path: SWISSMARK-iOS-unsigned.zip
+          name: SWISSMARK-iOS
+          path: SWISSMARK-iOS.ipa
           if-no-files-found: error
+
+      # 11. رفع سجل البناء إذا فشل
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SWISSMARK-build-log
+          path: build.log
+          if-no-files-found: ignore
