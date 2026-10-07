@@ -11,7 +11,11 @@ targets:
   SwissMark:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources:
+      - path: .
+        includes:
+          - "*.swift"
+          - GoogleService-Info.plist
     dependencies:
       - package: Firebase
         product: FirebaseAuth
