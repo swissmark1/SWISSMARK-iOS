@@ -3,17 +3,37 @@ import FirebaseCore
 
 @main
 struct SwissMarkApp: App {
-    init() { FirebaseApp.configure() }
-    @StateObject private var store = Store()
+    init() {
+        if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
+            FirebaseApp.configure()
+        }
+    }
     var body: some Scene {
         WindowGroup {
             Group {
-                if store.loggedIn { MainView() } else { LoginView() }
+                if FirebaseApp.app() == nil {
+                    ZStack {
+                        T.bg.ignoresSafeArea()
+                        Text("ملف GoogleService-Info.plist غير موجود داخل التطبيق")
+                            .foregroundColor(.white).multilineTextAlignment(.center).padding()
+                    }
+                } else {
+                    RootView()
+                }
             }
-            .environmentObject(store)
             .environment(\.layoutDirection, .rightToLeft)
             .preferredColorScheme(.dark)
         }
+    }
+}
+
+struct RootView: View {
+    @StateObject private var store = Store()
+    var body: some View {
+        Group {
+            if store.loggedIn { MainView() } else { LoginView() }
+        }
+        .environmentObject(store)
     }
 }
 
@@ -50,39 +70,4 @@ struct LoginView: View {
                         }
                         Button { store.login(email: email, password: password) } label: {
                             Text(store.loading ? "جاري الدخول..." : "دخول إلى النظام").font(.system(size: 16, weight: .bold)).foregroundColor(.white)
-                                .frame(maxWidth: .infinity).frame(height: 56)
-                                .background(RoundedRectangle(cornerRadius: 17).fill(T.blue))
-                        }.padding(.top, 8)
-                    }
-                    .padding(22)
-                    .background(RoundedRectangle(cornerRadius: 30).fill(Color(hex: 0x091625)))
-                    .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color(hex: 0x18324D), lineWidth: 1))
-                    Text("SWISS MARK • نظام صيانة احترافي").font(.system(size: 10)).foregroundColor(Color(hex: 0x526A82)).padding(.top, 22)
-                }.padding(24)
-            }
-        }
-    }
-
-    @ViewBuilder func field(_ title: String, text: Binding<String>, secure: Bool) -> some View {
-        Group {
-            if secure { SecureField(title, text: text) } else { TextField(title, text: text).textInputAutocapitalization(.never) }
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0x18324D), lineWidth: 1))
-    }
-}
-
-struct MainView: View {
-    @EnvironmentObject var store: Store
-    @State private var tab = 0
-
-    var body: some View {
-        TabView(selection: $tab) {
-            HomeView(orders: store.orders, goOrders: { tab = 1 }).tabItem { Label("الرئيسية", systemImage: "house.fill") }.tag(0)
-            OrdersView(orders: store.orders).tabItem { Label("الأوردرات", systemImage: "list.bullet.rectangle") }.tag(1)
-            AddOrderView(done: { tab = 1 }).tabItem { Label("إضافة", systemImage: "plus.circle.fill") }.tag(2)
-            MoreView().tabItem { Label("المزيد", systemImage: "square.grid.2x2") }.tag(3)
-        }
-        .tint(T.blue)
-    }
-}
+                                .frame(maxWi
